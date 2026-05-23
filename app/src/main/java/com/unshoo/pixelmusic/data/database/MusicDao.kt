@@ -103,6 +103,9 @@ interface MusicDao {
     @Query("UPDATE songs SET file_path = :filePath WHERE id = :songId")
     suspend fun updateSongFilePath(songId: Long, filePath: String)
 
+    @Query("UPDATE songs SET file_path = :filePath, parent_directory_path = :parentPath WHERE id = :songId")
+    suspend fun updateSongFilePathAndParent(songId: Long, filePath: String, parentPath: String)
+
     @Query("UPDATE songs SET genre = :genre WHERE id = :songId")
     suspend fun updateSongGenre(songId: Long, genre: String)
 
@@ -594,7 +597,7 @@ interface MusicDao {
     ): Flow<List<SongEntity>>
 
     @Query("""
-        SELECT id, parent_directory_path, title, album_art_uri_string FROM songs
+        SELECT id, parent_directory_path, title, album_art_uri_string, date_added FROM songs
         WHERE (:applyDirectoryFilter = 0 OR id < 0 OR parent_directory_path IN (:allowedParentDirs))
         AND (
             :filterMode = 0

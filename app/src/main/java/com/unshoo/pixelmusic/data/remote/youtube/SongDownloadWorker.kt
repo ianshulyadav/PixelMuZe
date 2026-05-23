@@ -106,8 +106,14 @@ class SongDownloadWorker(
 
                 if (audioPath != null) {
                     val mainId = -(15_000_000_000_000L + song.youtubeId.hashCode().toLong().absoluteValue)
-                    musicDao.updateSongFilePath(mainId, audioPath)
-                    copyToPublicDownload(appContext, audioPath, song.title, song.artist)
+                    val destinationFile = DownloadHelper.copyToPublicDownload(appContext, audioPath, song.title, song.artist)
+                    if (destinationFile != null) {
+                        val publicPath = destinationFile.absolutePath
+                        val parentDir = destinationFile.parentFile?.absolutePath ?: "/storage/emulated/0/Download/PixelMusic"
+                        musicDao.updateSongFilePathAndParent(mainId, publicPath, parentDir)
+                    } else {
+                        musicDao.updateSongFilePath(mainId, audioPath)
+                    }
                 }
 
                 UmihiNotificationManager.showSongDownloadSuccess(appContext, song)
@@ -126,44 +132,6 @@ class SongDownloadWorker(
                 )
                 Result.failure()
             }
-        }
-    }
-
-    private fun copyToPublicDownload(context: Context, sourceFilePath: String, songTitle: String, artistName: String): File? {
-        try {
-            val sourceFile = File(sourceFilePath)
-            if (!sourceFile.exists()) return null
-
-            val safeTitle = songTitle.replace(Regex("[\\\\/:*?\"<>|]"), "_")
-            val safeArtist = artistName.replace(Regex("[\\\\/:*?\"<>|]"), "_")
-            val fileName = "$safeTitle - $safeArtist.webm"
-
-            val publicDownloadDir = File(
-                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                "PixelMusic"
-            )
-            if (!publicDownloadDir.exists()) {
-                publicDownloadDir.mkdirs()
-            }
-            val destinationFile = File(publicDownloadDir, fileName)
-
-            sourceFile.inputStream().use { input ->
-                destinationFile.outputStream().use { output ->
-                    input.copyTo(output)
-                }
-            }
-
-            MediaScannerConnection.scanFile(
-                context,
-                arrayOf(destinationFile.absolutePath),
-                arrayOf("audio/webm"),
-                null
-            )
-
-            return destinationFile
-        } catch (e: Exception) {
-            UmihiHelper.printe("Failed to copy to public downloads: ${e.message}", exception = e)
-            return null
         }
     }
 

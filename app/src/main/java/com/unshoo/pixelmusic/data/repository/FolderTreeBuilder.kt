@@ -264,7 +264,7 @@ class FolderTreeBuilder @Inject constructor() {
             duration = 0L,
             trackNumber = 0,
             year = 0,
-            dateAdded = 0L,
+            dateAdded = dateAdded,
             dateModified = 0L,
             mimeType = null,
             bitrate = null,

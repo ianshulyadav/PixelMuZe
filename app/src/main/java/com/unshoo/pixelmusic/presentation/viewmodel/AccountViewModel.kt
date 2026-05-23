@@ -23,7 +23,8 @@ enum class AccountContentType {
 
 @HiltViewModel
 class AccountViewModel @Inject constructor(
-    private val datastoreRepository: DatastoreRepository
+    private val datastoreRepository: DatastoreRepository,
+    private val syncManager: com.unshoo.pixelmusic.data.worker.SyncManager
 ) : ViewModel() {
     val playlists = MutableStateFlow<List<PlaylistItem>?>(null)
     val albums = MutableStateFlow<List<AlbumItem>?>(null)
@@ -40,6 +41,16 @@ class AccountViewModel @Inject constructor(
     }
 
     fun fetchLibrary() {
+        viewModelScope.launch {
+            try {
+                if (datastoreRepository.cookies.first().toRawCookie().isNotEmpty()) {
+                    syncManager.forceRefresh()
+                }
+            } catch (e: Exception) {
+                Log.e("AccountViewModel", "Failed to auto-refresh YouTube library on load", e)
+            }
+        }
+
         viewModelScope.launch {
             isLoading.value = true
             error.value = null

@@ -441,6 +441,7 @@ fun LibraryScreen(
     val context = LocalContext.current // Added context
     val haptic = LocalHapticFeedback.current
     val lastTabIndex by playerViewModel.lastLibraryTabIndexFlow.collectAsStateWithLifecycle()
+    val folderArtworkPreference by playerViewModel.userPreferencesRepository.folderArtworkPreferenceFlow.collectAsStateWithLifecycle(initialValue = "recently_added")
     val favoriteIds by playerViewModel.favoriteSongIds.collectAsStateWithLifecycle() // Reintroducir favoriteIds aquí
     val scope = rememberCoroutineScope() // Mantener si se usa para acciones de UI
     val syncManager = playerViewModel.syncManager
@@ -1638,6 +1639,7 @@ fun LibraryScreen(
                                             folders = folders,
                                             currentFolder = currentFolder,
                                             isLoading = isLoading,
+                                            folderArtworkPreference = folderArtworkPreference,
                                             bottomBarHeight = bottomBarHeightDp,
                                             stablePlayerState = stablePlayerState,
                                             onNavigateBack = { playerViewModel.navigateBackFolder() },
@@ -2834,7 +2836,8 @@ fun LibraryFoldersTab(
     onRegisterLocateCurrentSongAction: ((() -> Unit)?) -> Unit = {},
     pendingLocatePath: String? = null,
     onClearPendingLocate: () -> Unit = {},
-    onRequestCrossFolderLocate: (String) -> Unit = {}
+    onRequestCrossFolderLocate: (String) -> Unit = {},
+    folderArtworkPreference: String = "recently_added"
 ) {
     // List state moved inside AnimatedContent to prevent state sharing issues during transitions
 
@@ -3056,6 +3059,7 @@ fun LibraryFoldersTab(
                                     items(itemsToShow, key = { it.path }, contentType = { "folder_list" }) { folder ->
                                         FolderListItem(
                                             folder = folder,
+                                            folderArtworkPreference = folderArtworkPreference,
                                             onClick = { onFolderClick(folder.path) }
                                         )
                                     }
@@ -3144,7 +3148,20 @@ fun FolderPlaylistItem(folder: MusicFolder, onClick: () -> Unit) {
 }
 
 @Composable
-fun FolderListItem(folder: MusicFolder, onClick: () -> Unit) {
+fun FolderListItem(
+    folder: MusicFolder,
+    folderArtworkPreference: String = "recently_added",
+    onClick: () -> Unit
+) {
+    val recentlyAddedSong = remember(folder, folderArtworkPreference) {
+        if (folderArtworkPreference == "recently_added") {
+            folder.collectAllSongs().maxByOrNull { it.dateAdded }
+        } else {
+            null
+        }
+    }
+    val albumArt = recentlyAddedSong?.albumArtUriString
+
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
@@ -3153,15 +3170,31 @@ fun FolderListItem(folder: MusicFolder, onClick: () -> Unit) {
         )
     ) {
         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                painter = painterResource(id = R.drawable.ic_folder),
-                contentDescription = stringResource(R.string.presentation_batch_d_cd_folder),
-                modifier = Modifier
-                    .size(48.dp)
-                    .background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
-                    .padding(8.dp),
-                tint = MaterialTheme.colorScheme.onPrimaryContainer
-            )
+            if (albumArt != null) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                ) {
+                    SmartImage(
+                        model = albumArt,
+                        contentDescription = stringResource(R.string.presentation_batch_d_cd_folder),
+                        contentScale = ContentScale.Crop,
+                        targetSize = Size(256, 256),
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            } else {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_folder),
+                    contentDescription = stringResource(R.string.presentation_batch_d_cd_folder),
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
+                        .padding(8.dp),
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
             Spacer(modifier = Modifier.width(16.dp))
             Column {
                 Text(folder.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)

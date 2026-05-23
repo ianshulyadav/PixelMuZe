@@ -1,6 +1,8 @@
 package com.unshoo.pixelmusic.data.remote.youtube
 
 import android.content.Context
+import android.media.MediaScannerConnection
+import android.os.Environment
 import com.unshoo.pixelmusic.data.model.youtube.Song
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -133,6 +135,44 @@ object DownloadHelper {
             tempFiles.forEach { it.delete() }
             outputFile.delete()
             return@withContext null
+        }
+    }
+
+    fun copyToPublicDownload(context: Context, sourceFilePath: String, songTitle: String, artistName: String): File? {
+        try {
+            val sourceFile = File(sourceFilePath)
+            if (!sourceFile.exists()) return null
+
+            val safeTitle = songTitle.replace(Regex("[\\\\/:*?\"\\<>|]"), "_")
+            val safeArtist = artistName.replace(Regex("[\\\\/:*?\"\\<>|]"), "_")
+            val fileName = "$safeTitle - $safeArtist.webm"
+
+            val publicDownloadDir = File(
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                "PixelMusic"
+            )
+            if (!publicDownloadDir.exists()) {
+                publicDownloadDir.mkdirs()
+            }
+            val destinationFile = File(publicDownloadDir, fileName)
+
+            sourceFile.inputStream().use { input ->
+                destinationFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+
+            MediaScannerConnection.scanFile(
+                context,
+                arrayOf(destinationFile.absolutePath),
+                arrayOf("audio/webm"),
+                null
+            )
+
+            return destinationFile
+        } catch (e: Exception) {
+            UmihiHelper.printe("Failed to copy to public downloads: ${e.message}", exception = e)
+            return null
         }
     }
 }

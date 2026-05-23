@@ -19,6 +19,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.WorkManager
 import com.unshoo.pixelmusic.data.remote.youtube.YoutubePlaylistDataSource
+import com.unshoo.pixelmusic.data.remote.youtube.YoutubeRequestHelper
 import com.unshoo.pixelmusic.data.model.youtube.Playlist
 import com.unshoo.pixelmusic.data.model.youtube.PlaylistInfo
 import com.unshoo.pixelmusic.data.database.AlbumEntity
@@ -1915,6 +1916,13 @@ constructor(
                 Log.e(TAG, "Failed to fetch and update YouTube genres", e)
             }
 
+            val allPlaylists = playlistPreferencesRepository.getPlaylistsOnce()
+            val localPlaylistSongIds = allPlaylists
+                .filter { it.source == "LOCAL" || it.source == "SMART" }
+                .flatMap { it.songIds }
+                .mapNotNull { it.toLongOrNull() }
+                .toSet()
+
             val youtubePlaylists = appDatabase.playlistRepository().getAll()
             val downloadedSongs = appDatabase.songRepository().getDownloadedSongs()
 
@@ -1922,10 +1930,12 @@ constructor(
 
             if (youtubePlaylists.isEmpty() && downloadedSongs.isEmpty() && remoteLikedSongsList.isEmpty()) {
                 if (existingUnifiedYoutubeIds.isNotEmpty()) {
-                    musicDao.clearAllYoutubeSongs()
+                    val toDelete = existingUnifiedYoutubeIds.filter { it !in localPlaylistSongIds }
+                    if (toDelete.isNotEmpty()) {
+                        musicDao.deleteSongsAndRelatedData(toDelete)
+                    }
                 }
                 // Also delete all YouTube playlists in the main DB
-                val allPlaylists = playlistPreferencesRepository.getPlaylistsOnce()
                 allPlaylists.filter { it.source == "YOUTUBE" }.forEach {
                     playlistPreferencesRepository.deletePlaylist(it.id)
                 }
@@ -2038,7 +2048,9 @@ constructor(
             }
 
             val currentUnifiedSongIds = songsToInsert.map { it.id }.toSet()
-            val deletedUnifiedSongIds = existingUnifiedYoutubeIds.filter { it !in currentUnifiedSongIds }
+            val deletedUnifiedSongIds = existingUnifiedYoutubeIds.filter { 
+                it !in currentUnifiedSongIds && it !in localPlaylistSongIds 
+            }
 
             musicDao.incrementalSyncMusicData(
                 songs = songsToInsert,
@@ -2050,7 +2062,6 @@ constructor(
 
             // Sync YouTube Playlists to user preferences/database
             val syncedPlaylistIds = youtubePlaylists.map { it.info.id }.toSet()
-            val allPlaylists = playlistPreferencesRepository.getPlaylistsOnce()
 
             // Delete orphaned synced playlists
             allPlaylists.filter { it.source == "YOUTUBE" && it.id !in syncedPlaylistIds }.forEach {
@@ -2080,6 +2091,57 @@ constructor(
                         )
                     )
                 }
+            }
+
+            // 4. Two-way Playlist Sync (Sync local created playlists to YouTube)
+            try {
+                if (settings.cookies.raw.isNotBlank()) {
+                    val remotePlaylists = YoutubePlaylistDataSource().retrieveAll(settings)
+                    val localPlaylists = allPlaylists.filter { it.source == "LOCAL" || it.source == "SMART" }
+                    
+                    localPlaylists.forEach { localPlaylist ->
+                        val playlistSongIds = localPlaylist.songIds.mapNotNull { it.toLongOrNull() }
+                        if (playlistSongIds.isNotEmpty()) {
+                            val playlistSongs = musicDao.getSongsByIdsListSimple(playlistSongIds)
+                            val localYoutubeVideoIds = playlistSongs
+                                .filter { it.sourceType == SourceType.YOUTUBE }
+                                .map { it.contentUriString.removePrefix("youtube://") }
+                                .filter { it.isNotBlank() }
+                            
+                            if (localYoutubeVideoIds.isNotEmpty()) {
+                                val matchingRemote = remotePlaylists.find { it.title.equals(localPlaylist.name, ignoreCase = true) }
+                                if (matchingRemote == null) {
+                                    Log.i(TAG, "Creating remote YouTube playlist '${localPlaylist.name}' with ${localYoutubeVideoIds.size} songs...")
+                                    try {
+                                        val jsonResponse = YoutubeRequestHelper.createPlaylist(localPlaylist.name, localYoutubeVideoIds, settings)
+                                        val playlistIdRegex = """\"playlistId\"\s*:\s*\"([^\"]+)\"""".toRegex()
+                                        val remotePlaylistId = playlistIdRegex.find(jsonResponse)?.groupValues?.get(1)
+                                        Log.i(TAG, "Successfully created remote YouTube playlist: $remotePlaylistId")
+                                    } catch (e: Exception) {
+                                        Log.e(TAG, "Failed to create remote YouTube playlist", e)
+                                    }
+                                } else {
+                                    // Fetch current remote playlist songs to avoid adding duplicates
+                                    try {
+                                        val emptyPlaylist = com.unshoo.pixelmusic.data.model.youtube.Playlist(matchingRemote, emptyList())
+                                        val fullPlaylist = YoutubePlaylistDataSource().retrieveOne(emptyPlaylist, settings)
+                                        val remoteSongVideoIds = fullPlaylist.songs.map { it.youtubeId }.toSet()
+                                        val missingVideoIds = localYoutubeVideoIds.filter { it !in remoteSongVideoIds }
+                                        
+                                        if (missingVideoIds.isNotEmpty()) {
+                                            Log.i(TAG, "Adding ${missingVideoIds.size} missing songs to remote YouTube playlist '${localPlaylist.name}'...")
+                                            YoutubeRequestHelper.addVideosToPlaylist(matchingRemote.id, missingVideoIds, settings)
+                                        }
+                                    } catch (e: Exception) {
+                                        Log.e(TAG, "Failed to sync songs to existing remote YouTube playlist", e)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to perform two-way YouTube playlist sync", e)
             }
 
             Log.i(TAG, "Synced ${songsToInsert.size} YouTube songs and ${youtubePlaylists.size} playlists.")

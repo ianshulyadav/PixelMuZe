@@ -247,6 +247,7 @@ constructor(
         val ALBUM_ART_QUALITY_MOBILE = stringPreferencesKey("album_art_quality_mobile")
         val CACHE_LIKED_SONGS_OFFLINE = booleanPreferencesKey("cache_liked_songs_offline")
         val STORAGE_LIMIT_MB = intPreferencesKey("storage_limit_mb") // 0 = unlimited
+        val FOLDER_ARTWORK_PREFERENCE = stringPreferencesKey("folder_artwork_preference")
     }
 
     val appRebrandDialogShownFlow: Flow<Boolean> =
@@ -257,6 +258,17 @@ constructor(
     suspend fun setAppRebrandDialogShown(wasShown: Boolean) {
         dataStore.edit { preferences ->
             preferences[PreferencesKeys.APP_REBRAND_DIALOG_SHOWN] = wasShown
+        }
+    }
+
+    val folderArtworkPreferenceFlow: Flow<String> =
+        dataStore.data.map { preferences ->
+            preferences[PreferencesKeys.FOLDER_ARTWORK_PREFERENCE] ?: "recently_added"
+        }
+
+    suspend fun setFolderArtworkPreference(preference: String) {
+        dataStore.edit { preferences ->
+            preferences[PreferencesKeys.FOLDER_ARTWORK_PREFERENCE] = preference
         }
     }
 
