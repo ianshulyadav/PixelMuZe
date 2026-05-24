@@ -281,7 +281,7 @@ object AutoQueueManager {
 
     private suspend fun fetchAndAppendOnline(videoId: String, player: Player): Boolean {
         try {
-            val endpoint = currentWatchEndpoint ?: WatchEndpoint(videoId = videoId)
+            val endpoint = currentWatchEndpoint ?: WatchEndpoint(videoId = videoId, playlistId = "RDAMVM$videoId")
             val result = YouTube.next(endpoint = endpoint, continuation = continuationToken, followAutomixPreview = true)
             
             var fetchSuccess = false

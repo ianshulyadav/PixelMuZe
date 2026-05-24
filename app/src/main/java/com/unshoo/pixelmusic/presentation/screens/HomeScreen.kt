@@ -355,7 +355,7 @@ fun HomeScreen(
                         QuickPicksSection(
                             songs = quickPicks,
                             onSongClick = { song ->
-                                playerViewModel.showAndPlaySongFromLibrary(song, queueName = "Quick Picks")
+                                playerViewModel.showAndPlaySong(song, listOf(song), "Quick Picks")
                             },
                             currentSongId = currentSong?.id
                         )
