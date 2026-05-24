@@ -47,11 +47,19 @@ import javax.inject.Inject
 data class ArtistDetailUiState(
     val artist: Artist? = null,
     val songs: List<Song> = emptyList(),
+    val popularSongs: List<Song> = emptyList(),
     val albumSections: List<ArtistAlbumSection> = emptyList(),
+    val singlesAndEPs: List<ArtistAlbumSection> = emptyList(),
     val effectiveImageUrl: String? = null,
     val isLoading: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    val isOnlineArtist: Boolean = false,
+    val artistDescription: String? = null,
+    val subscriberCount: String? = null,
+    val browseId: String? = null
 )
+
+enum class ArtistSectionType { ALBUM, SINGLE_EP, SONGS }
 
 @Immutable
 data class ArtistAlbumSection(
@@ -59,7 +67,9 @@ data class ArtistAlbumSection(
     val title: String,
     val year: Int?,
     val albumArtUriString: String?,
-    val songs: List<Song>
+    val songs: List<Song>,
+    val browseId: String? = null,
+    val sectionType: ArtistSectionType = ArtistSectionType.ALBUM
 )
 
 @HiltViewModel
@@ -125,7 +135,7 @@ class ArtistDetailViewModel @Inject constructor(
                             InnerTubeYouTube.search(localArtist.name, InnerTubeYouTube.SearchFilter.FILTER_ARTIST).getOrNull()
                         }
                         val artistItem = searchResult?.items?.find { it is ArtistItem } as? ArtistItem
-                        browseId = artistItem?.id ?: ("UC" + localArtist.name.hashCode().toString())
+                        browseId = artistItem?.id
                     }
                 }
 
@@ -137,75 +147,65 @@ class ArtistDetailViewModel @Inject constructor(
                     artistPageResult.onSuccess { artistPage ->
                         val artistItem = artistPage.artist
                         val artistModel = Artist(
-                            id = artistIdStr.hashCode().toLong(),
+                            id = browseId.hashCode().toLong(),
                             name = artistItem.title,
                             songCount = 0,
                             imageUrl = artistItem.thumbnail
                         )
 
+                        // ── Popular Songs: extract from the "Songs" section ──
                         val ytSongsSection = artistPage.sections.find {
-                            it.title.contains("Songs", ignoreCase = true)
+                            it.title.contains("Songs", ignoreCase = true) ||
+                            it.title.contains("Popular", ignoreCase = true)
                         }
-                        val nativeSongs = ytSongsSection?.items?.mapNotNull { item ->
+                        val popularSongs = ytSongsSection?.items?.mapNotNull { item ->
                             (item as? SongItem)?.toNativeSong()
-                        } ?: emptyList()
+                        }?.take(10) ?: emptyList()
 
-                        val albumSections = artistPage.sections.filter {
-                            it.title.contains("Albums", ignoreCase = true) ||
-                            it.title.contains("Singles", ignoreCase = true) ||
-                            it.title.contains("Releases", ignoreCase = true)
-                        }.map { section ->
-                            val sectionSongs = section.items.mapNotNull { item ->
+                        // ── Albums: sections titled "Albums" or "Releases" ──
+                        fun AlbumItem.toAlbumSection(artistTitle: String, artistIdHash: Long): ArtistAlbumSection {
+                            return ArtistAlbumSection(
+                                albumId = this.browseId.hashCode().toLong(),
+                                title = this.title,
+                                year = this.year,
+                                albumArtUriString = this.thumbnail,
+                                browseId = this.browseId,
+                                songs = emptyList(), // Albums shown as cards; songs loaded on album detail
+                                sectionType = ArtistSectionType.ALBUM
+                            )
+                        }
+
+                        val albumSections = artistPage.sections.filter { section ->
+                            section.title.contains("Albums", ignoreCase = true) ||
+                            section.title.contains("Releases", ignoreCase = true)
+                        }.flatMap { section ->
+                            section.items.mapNotNull { item ->
                                 when (item) {
-                                    is SongItem -> item.toNativeSong()
-                                    is AlbumItem -> {
-                                        Song(
-                                            id = "youtube_album_placeholder_${item.browseId}",
-                                            title = item.title,
-                                            artist = artistItem.title,
-                                            artistId = artistIdStr.hashCode().toLong(),
-                                            artists = emptyList<com.unshoo.pixelmusic.data.model.ArtistRef>(),
-                                            album = item.title,
-                                            albumId = item.browseId.hashCode().toLong(),
-                                            albumArtist = artistItem.title,
-                                            path = "",
-                                            contentUriString = "youtube_album://${item.browseId}",
-                                            albumArtUriString = item.thumbnail,
-                                            duration = 0L,
-                                            genre = "YouTube",
-                                            lyrics = null,
-                                            isFavorite = false,
-                                            trackNumber = 1,
-                                            discNumber = null,
-                                            year = item.year ?: 0,
-                                            dateAdded = System.currentTimeMillis(),
-                                            dateModified = System.currentTimeMillis(),
-                                            mimeType = "audio/mpeg",
-                                            bitrate = 128,
-                                            sampleRate = 44100,
-                                            telegramFileId = null,
-                                            telegramChatId = null,
-                                            neteaseId = null,
-                                            gdriveFileId = null,
-                                            qqMusicMid = null,
-                                            navidromeId = null,
-                                            jellyfinId = null,
-                                            youtubeId = null
-                                        )
-                                    }
+                                    is AlbumItem -> item.toAlbumSection(artistItem.title, browseId.hashCode().toLong())
                                     else -> null
                                 }
                             }
+                        }
 
-                            val sectionTitle = section.title
-                            val sectionAlbumId = section.title.hashCode().toLong()
-                            ArtistAlbumSection(
-                                albumId = sectionAlbumId,
-                                title = sectionTitle,
-                                year = null,
-                                albumArtUriString = sectionSongs.firstOrNull()?.albumArtUriString,
-                                songs = sectionSongs
-                            )
+                        // ── Singles & EPs: sections titled "Singles", "EP", or "EPs" ──
+                        val singlesAndEPs = artistPage.sections.filter { section ->
+                            section.title.contains("Single", ignoreCase = true) ||
+                            section.title.contains("EP", ignoreCase = true)
+                        }.flatMap { section ->
+                            section.items.mapNotNull { item ->
+                                when (item) {
+                                    is AlbumItem -> ArtistAlbumSection(
+                                        albumId = item.browseId.hashCode().toLong(),
+                                        title = item.title,
+                                        year = item.year,
+                                        albumArtUriString = item.thumbnail,
+                                        browseId = item.browseId,
+                                        songs = emptyList(),
+                                        sectionType = ArtistSectionType.SINGLE_EP
+                                    )
+                                    else -> null
+                                }
+                            }
                         }
 
                         val effectiveImageUrl = artistItem.thumbnail
@@ -220,10 +220,16 @@ class ArtistDetailViewModel @Inject constructor(
                         _artistColorScheme.value = newScheme
                         _uiState.value = ArtistDetailUiState(
                             artist = artistModel,
-                            songs = nativeSongs,
+                            songs = popularSongs,
+                            popularSongs = popularSongs,
                             albumSections = albumSections,
+                            singlesAndEPs = singlesAndEPs,
                             effectiveImageUrl = effectiveImageUrl,
-                            isLoading = false
+                            isLoading = false,
+                            isOnlineArtist = true,
+                            artistDescription = artistPage.description,
+                            subscriberCount = artistItem.subscriberCountText,
+                            browseId = browseId
                         )
                     }.onFailure { e ->
                         _uiState.update {
@@ -286,9 +292,12 @@ class ArtistDetailViewModel @Inject constructor(
                                     imageUrl = if (artist.customImageUri.isNullOrBlank()) effectiveUrl else artist.imageUrl
                                 ),
                                 songs = orderedSongs,
+                                popularSongs = emptyList(),
                                 albumSections = albumSections,
+                                singlesAndEPs = emptyList(),
                                 effectiveImageUrl = effectiveUrl,
-                                isLoading = false
+                                isLoading = false,
+                                isOnlineArtist = false
                             )
                         }
                 }
@@ -394,6 +403,7 @@ class ArtistDetailViewModel @Inject constructor(
 
             currentState.copy(
                 albumSections = updatedAlbumSections,
+                popularSongs = currentState.popularSongs.filterNot { it.id == songId },
                 songs = currentState.songs.filterNot { it.id == songId }
             )
         }
