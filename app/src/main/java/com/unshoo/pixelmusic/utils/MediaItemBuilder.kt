@@ -159,6 +159,9 @@ object MediaItemBuilder {
         val isLikelyLocalMedia = LocalArtworkUri.isLikelyLocalMedia(contentUriString) ||
             filePath?.startsWith("/") == true
         if (!isLikelyLocalMedia) {
+            if (contentUriString.startsWith("youtube://")) {
+                return null
+            }
             return mimeType
         }
 

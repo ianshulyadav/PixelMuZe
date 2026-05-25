@@ -2389,6 +2389,13 @@ class PlayerViewModel @Inject constructor(
                     
                     artistRefs.forEach { ref ->
                         val refArtistId = if (ref.id > 0) -(17_000_000_000_000L + ref.name.lowercase().hashCode().toLong().let { if (it < 0) -it else it }) else ref.id
+                        val refArtistEntity = ArtistEntity(
+                            id = refArtistId,
+                            name = ref.name,
+                            trackCount = 1,
+                            imageUrl = null
+                        )
+                        artistsToInsert.add(refArtistEntity)
                         crossRefsToInsert.add(
                             SongArtistCrossRef(
                                 songId = songId,

@@ -45,6 +45,7 @@ import kotlinx.coroutines.FlowPreview
  */
 @Singleton
 class SearchStateHolder @Inject constructor(
+    @param:dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
     private val musicRepository: MusicRepository,
     private val youtubeSongRepository: com.unshoo.pixelmusic.data.remote.youtube.SongRepository,
 ) {
@@ -120,12 +121,14 @@ class SearchStateHolder @Inject constructor(
                             // 1. Fetch songs if applicable
                             if (currentFilter == SearchFilterType.ALL || currentFilter == SearchFilterType.SONGS) {
                                 try {
-                                    val songResult = youtubeSongRepository.search(normalizedQuery).first { 
-                                        it is com.unshoo.pixelmusic.data.remote.youtube.ApiResult.Success || it is com.unshoo.pixelmusic.data.remote.youtube.ApiResult.Error
+                                    val searchResult = withContext(Dispatchers.IO) {
+                                        unshoo.ianshulyadav.pixelmusic.innertube.YouTube.search(
+                                            normalizedQuery,
+                                            unshoo.ianshulyadav.pixelmusic.innertube.YouTube.SearchFilter.FILTER_SONG
+                                        ).getOrNull()
                                     }
-                                    if (songResult is com.unshoo.pixelmusic.data.remote.youtube.ApiResult.Success) {
-                                        items.addAll(songResult.data.map { SearchResultItem.SongItem(it.toNativeSong()) })
-                                    }
+                                    val apiSongs = searchResult?.items?.filterIsInstance<unshoo.ianshulyadav.pixelmusic.innertube.models.SongItem>() ?: emptyList()
+                                    items.addAll(apiSongs.map { SearchResultItem.SongItem(it.toNativeSong()) })
                                 } catch (e: Exception) {
                                     Timber.e(e, "Error fetching YouTube search songs")
                                 }
@@ -221,6 +224,28 @@ class SearchStateHolder @Inject constructor(
                                 _searchResults.value = immutableResults
                                 // Cache for future instant display
                                 searchResultCache.put(normalizedQuery, immutableResults)
+
+                                // Pre-cache/prefetch the stream URL of the top song result asynchronously
+                                scope?.launch(Dispatchers.IO) {
+                                    try {
+                                        val topSongItem = immutableResults.firstOrNull { it is SearchResultItem.SongItem } as? SearchResultItem.SongItem
+                                        if (topSongItem != null && topSongItem.song.youtubeId != null) {
+                                            val ytSong = com.unshoo.pixelmusic.data.model.youtube.Song(
+                                                youtubeId = topSongItem.song.youtubeId,
+                                                title = topSongItem.song.title,
+                                                artist = topSongItem.song.artist,
+                                                thumbnailHref = topSongItem.song.albumArtUriString ?: ""
+                                            )
+                                            com.unshoo.pixelmusic.data.remote.youtube.YoutubeHelper.getSongPlayerUrl(
+                                                context = appContext,
+                                                song = ytSong,
+                                                allowLocal = false
+                                            )
+                                        }
+                                    } catch (e: Exception) {
+                                        Timber.w(e, "Error prefetching top search result stream URL")
+                                    }
+                                }
                             }
                         }
                     } catch (_: CancellationException) {

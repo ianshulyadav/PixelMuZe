@@ -653,11 +653,7 @@ class MusicRepositoryImpl @Inject constructor(
             entities.map { it.toSong() }
         }
 
-        val youtubeFlow = getYoutubeSearchFlow(query)
-
-        return combine(localSearchFlow, youtubeFlow) { localSongs, youtubeSongs ->
-            localSongs + youtubeSongs
-        }.flowOn(Dispatchers.IO)
+        return localSearchFlow.flowOn(Dispatchers.IO)
     }
 
 
