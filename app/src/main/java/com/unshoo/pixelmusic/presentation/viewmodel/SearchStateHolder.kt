@@ -43,8 +43,8 @@ class SearchStateHolder @Inject constructor(
     @param:dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
 ) {
     companion object {
-        const val SEARCH_DEBOUNCE_MS = 250L
-        const val SEARCH_CACHE_SIZE = 20
+        const val SEARCH_DEBOUNCE_MS = 150L
+        const val SEARCH_CACHE_SIZE = 30
     }
 
     private val searchResultCache = LruCache<String, ImmutableList<SearchResultItem>>(SEARCH_CACHE_SIZE)

@@ -6,6 +6,7 @@ import com.unshoo.pixelmusic.data.preferences.UserPreferencesRepository
 import com.unshoo.pixelmusic.data.repository.MusicRepository
 import com.unshoo.pixelmusic.data.worker.SyncManager
 import com.unshoo.pixelmusic.data.worker.SyncProgress
+import com.unshoo.pixelmusic.data.worker.YouTubeLibrarySyncManager
 import com.unshoo.pixelmusic.utils.LogUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
@@ -18,6 +19,7 @@ import javax.inject.Inject
 @HiltViewModel
 class MainViewModel @Inject constructor(
     private val syncManager: SyncManager,
+    private val youTubeLibrarySyncManager: YouTubeLibrarySyncManager,
     musicRepository: MusicRepository,
     userPreferencesRepository: UserPreferencesRepository
 ) : ViewModel() {
@@ -83,6 +85,8 @@ class MainViewModel @Inject constructor(
             // For returning users (setup already complete), we trigger sync here
             if (isSetupComplete.value == true) {
                 syncManager.sync()
+                // Also sync YouTube library (subscribed artists + liked songs) in background
+                youTubeLibrarySyncManager.syncNow()
             }
         }
     }

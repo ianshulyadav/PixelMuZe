@@ -1,10 +1,13 @@
 package com.unshoo.pixelmusic.presentation.viewmodel
 
+import androidx.paging.filter
 import com.unshoo.pixelmusic.data.model.Album
 import com.unshoo.pixelmusic.data.model.Artist
+import com.unshoo.pixelmusic.data.model.Genre
 import com.unshoo.pixelmusic.data.model.MusicFolder
 import com.unshoo.pixelmusic.data.model.Song
 import com.unshoo.pixelmusic.data.model.SortOption
+import com.unshoo.pixelmusic.data.model.StorageFilter
 import com.unshoo.pixelmusic.data.preferences.UserPreferencesRepository
 import com.unshoo.pixelmusic.data.repository.MusicRepository
 import kotlinx.collections.immutable.ImmutableList
@@ -19,6 +22,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import javax.inject.Inject
@@ -27,9 +31,9 @@ import javax.inject.Singleton
 private const val ENABLE_FOLDERS_STORAGE_FILTER = false
 
 /**
- * Library state stub — all local library data loading has been removed.
- * The library section is now backed exclusively by YouTube/streaming.
- * Flows emit empty lists; the UI shows empty-state placeholders.
+ * Library state — wired to local Room DB (local + YouTube songs, albums, artists).
+ * YouTube subscribed artists / liked songs are synced into the DB by YouTubeLibrarySyncManager
+ * before this state holder observes them, so all paging flows pick them up automatically.
  */
 @Singleton
 class LibraryStateHolder @Inject constructor(
@@ -37,7 +41,7 @@ class LibraryStateHolder @Inject constructor(
     private val musicRepository: MusicRepository
 ) {
 
-    // --- State (always empty — local library removed) ---
+    // --- Non-paged state kept for compat with callers that still use them ---
     private val _allSongs = MutableStateFlow<ImmutableList<Song>>(persistentListOf())
     val allSongs = _allSongs.asStateFlow()
 
@@ -59,10 +63,11 @@ class LibraryStateHolder @Inject constructor(
     private val _isLoadingCategories = MutableStateFlow(false)
     val isLoadingCategories = _isLoadingCategories.asStateFlow()
 
+    // --- Sort / filter options ---
     private val _currentSongSortOption = MutableStateFlow<SortOption>(SortOption.SongDefaultOrder)
     val currentSongSortOption = _currentSongSortOption.asStateFlow()
 
-    private val _currentStorageFilter = MutableStateFlow(com.unshoo.pixelmusic.data.model.StorageFilter.ALL)
+    private val _currentStorageFilter = MutableStateFlow(StorageFilter.ALL)
     val currentStorageFilter = _currentStorageFilter.asStateFlow()
 
     private val _currentAlbumSortOption = MutableStateFlow<SortOption>(SortOption.AlbumTitleAZ)
@@ -77,41 +82,76 @@ class LibraryStateHolder @Inject constructor(
     private val _currentFavoriteSortOption = MutableStateFlow<SortOption>(SortOption.LikedSongDateLiked)
     val currentFavoriteSortOption = _currentFavoriteSortOption.asStateFlow()
 
-    // Paging flows all return empty (local library removed)
+    /**
+     * Effective storage filter — when "hide local media" pref is on, force ONLINE so
+     * only streaming/YouTube songs appear; otherwise use the user-selected filter.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val effectiveStorageFilter: Flow<StorageFilter> =
+        combine(
+            _currentStorageFilter,
+            userPreferencesRepository.hideLocalMediaFlow
+        ) { filter, hideLocal ->
+            if (hideLocal) StorageFilter.ONLINE else filter
+        }
+
+    // --- Paging flows wired to the local Room DB ---
+
+    @OptIn(ExperimentalCoroutinesApi::class)
     val songsPagingFlow: Flow<androidx.paging.PagingData<Song>> =
-        flowOf(androidx.paging.PagingData.empty())
+        combine(_currentSongSortOption, effectiveStorageFilter) { sort, filter ->
+            sort to filter
+        }.flatMapLatest { (sortOption, filter) ->
+            musicRepository.getPaginatedSongs(sortOption, filter)
+        }.flowOn(Dispatchers.IO)
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     val albumsPagingFlow: Flow<androidx.paging.PagingData<Album>> =
-        flowOf(androidx.paging.PagingData.empty())
+        combine(
+            _currentAlbumSortOption,
+            effectiveStorageFilter,
+            userPreferencesRepository.minTracksPerAlbumFlow
+        ) { sort, filter, minTracks ->
+            Triple(sort, filter, minTracks)
+        }.flatMapLatest { (sortOption, filter, minTracks) ->
+            musicRepository.getPaginatedAlbums(sortOption, filter, minTracks)
+        }.flowOn(Dispatchers.IO)
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     val artistsPagingFlow: Flow<androidx.paging.PagingData<Artist>> =
-        flowOf(androidx.paging.PagingData.empty())
+        combine(
+            _currentArtistSortOption,
+            effectiveStorageFilter
+        ) { sort, filter ->
+            sort to filter
+        }.flatMapLatest { (sortOption, filter) ->
+            // All artists in DB (local + YouTube subscribed — synced by YouTubeLibrarySyncManager)
+            musicRepository.getPaginatedArtists(sortOption, filter)
+        }.flowOn(Dispatchers.IO)
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    val favoritesPagingFlow: Flow<androidx.paging.PagingData<Song>> = combine(
-        _currentFavoriteSortOption,
-        _currentStorageFilter
-    ) { sortOption, storageFilter ->
-        sortOption to storageFilter
-    }.flatMapLatest { (sortOption, storageFilter) ->
-        musicRepository.getPaginatedFavoriteSongs(sortOption, storageFilter)
-    }
+    val favoritesPagingFlow: Flow<androidx.paging.PagingData<Song>> =
+        combine(_currentFavoriteSortOption, effectiveStorageFilter) { sort, filter ->
+            sort to filter
+        }.flatMapLatest { (sortOption, storageFilter) ->
+            musicRepository.getPaginatedFavoriteSongs(sortOption, storageFilter)
+        }.flowOn(Dispatchers.IO)
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    val favoriteSongCountFlow: Flow<Int> = _currentStorageFilter.flatMapLatest { storageFilter ->
-        musicRepository.getFavoriteSongCountFlow(storageFilter)
-    }
+    val favoriteSongCountFlow: Flow<Int> = effectiveStorageFilter
+        .flatMapLatest { filter -> musicRepository.getFavoriteSongCountFlow(filter) }
+        .flowOn(Dispatchers.IO)
 
-    val genres: Flow<ImmutableList<com.unshoo.pixelmusic.data.model.Genre>> =
-        flowOf(persistentListOf())
+    val genres: Flow<ImmutableList<Genre>> = flowOf(persistentListOf())
 
     fun initialize(scope: CoroutineScope) {
-        // No-op: local library loading removed
+        // Paging flows are cold — no explicit initialization needed.
+        // Retained for API compat.
     }
 
     fun onCleared() {}
 
-    // --- No-op data loaders ---
+    // --- No-op data loaders (paging flows auto-refresh from DB) ---
     fun startObservingLibraryData() {}
     fun loadSongsFromRepository() {}
     fun loadAlbumsFromRepository() {}
@@ -121,7 +161,7 @@ class LibraryStateHolder @Inject constructor(
     fun loadAlbumsIfNeeded() {}
     fun loadArtistsIfNeeded() {}
 
-    // Sort stubs (keep so callers compile)
+    // --- Sort options ---
     fun sortSongs(sortOption: SortOption, persist: Boolean = true) {
         _currentSongSortOption.value = sortOption
     }
@@ -152,15 +192,11 @@ class LibraryStateHolder @Inject constructor(
         _allSongs.update { it.filter { s -> s.id != songId }.toImmutableList() }
     }
 
-    fun setStorageFilter(filter: com.unshoo.pixelmusic.data.model.StorageFilter) {
+    fun setStorageFilter(filter: StorageFilter) {
         _currentStorageFilter.value = filter
     }
 
-    fun trimMemory(level: Int) {
-        // No-op: no local data to trim
-    }
+    fun trimMemory(level: Int) {}
 
-    fun restoreAfterTrimIfNeeded() {
-        // No-op
-    }
+    fun restoreAfterTrimIfNeeded() {}
 }
