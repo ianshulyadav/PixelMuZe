@@ -612,33 +612,16 @@ fun LibraryScreen(
     var isMinDelayActive by remember { mutableStateOf(false) }
     var refreshGeneration by remember { mutableStateOf(0) }
 
-    val onRefresh: () -> Unit = remember(scope, syncManager) {
+    val onRefresh: () -> Unit = remember(scope) {
         {
             val currentRefreshGeneration = refreshGeneration + 1
             refreshGeneration = currentRefreshGeneration
             isMinDelayActive = true
             isRefreshing = true
-            syncManager.incrementalSync()
             scope.launch {
                 kotlinx.coroutines.delay(PULL_REFRESH_MIN_VISIBLE_MS)
                 if (currentRefreshGeneration != refreshGeneration) return@launch
                 isMinDelayActive = false
-                // If the changes phase already finished while the tactile minimum was
-                // still active, hide the spinner now.
-                val stillFetching = syncManager.isFetchingChanges.first()
-                if (!stillFetching) {
-                    isRefreshing = false
-                    return@launch
-                }
-
-                val remainingVisibleMs =
-                    (PULL_REFRESH_MAX_VISIBLE_MS - PULL_REFRESH_MIN_VISIBLE_MS)
-                        .coerceAtLeast(0L)
-                if (remainingVisibleMs > 0L) {
-                    kotlinx.coroutines.delay(remainingVisibleMs)
-                }
-                if (currentRefreshGeneration != refreshGeneration) return@launch
-                // Long-running refresh work continues through the inline indicator.
                 isRefreshing = false
             }
         }

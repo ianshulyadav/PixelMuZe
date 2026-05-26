@@ -218,11 +218,7 @@ fun RecentlyPlayedScreen(
                                 playerViewModel.playSongs(queueSongs, firstSong, queueRecentlyPlayed)
                             },
                             onShuffle = {
-                                playerViewModel.playSongsShuffled(
-                                    songsToPlay = queueSongs,
-                                    queueName = queueRecentlyPlayed,
-                                    startAtZero = true,
-                                )
+                                // Shuffle disabled — use Play
                             },
                             shuffleLabel = shuffleLabel,
                             modifier = Modifier.padding(horizontal = 16.dp)

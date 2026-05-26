@@ -397,19 +397,7 @@ fun PlaylistDetailScreen(
                     }
                     FilledTonalButton(
                         onClick = {
-                            if (currentPlaylist.source == "YOUTUBE") {
-                                playerViewModel.playRadio(
-                                    unshoo.ianshulyadav.pixelmusic.innertube.models.WatchEndpoint(playlistId = currentPlaylist.id),
-                                    currentPlaylist.name
-                                )
-                            } else if (localReorderableSongs.isNotEmpty()) {
-                                playerViewModel.playSongsShuffled(
-                                    songsToPlay = localReorderableSongs,
-                                    queueName = currentPlaylist.name,
-                                    playlistId = currentPlaylist.id,
-                                    startAtZero = true,
-                                )
-                            }
+                            // Shuffle disabled
                         },
                         modifier = Modifier
                             .weight(1f)

@@ -1,7 +1,8 @@
 package com.unshoo.pixelmusic.presentation.screens
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,9 +29,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
@@ -41,40 +44,23 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.util.UnstableApi
 import androidx.navigation.NavController
-import com.unshoo.pixelmusic.data.model.Song
 import com.unshoo.pixelmusic.presentation.components.MiniPlayerHeight
 import com.unshoo.pixelmusic.presentation.components.subcomps.EnhancedSongListItem
+import com.unshoo.pixelmusic.presentation.viewmodel.QUICK_PICKS_CATEGORIES
 import com.unshoo.pixelmusic.presentation.viewmodel.PlayerViewModel
 import com.unshoo.pixelmusic.presentation.viewmodel.QuickPicksViewModel
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
-
-private val QUICK_PICKS_CATEGORIES = listOf(
-    "All",
-    "Romance",
-    "Love",
-    "Pump",
-    "Punjabi",
-    "Bollywood",
-    "Chill",
-    "Party",
-    "Sad",
-    "Dance"
-)
 
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
@@ -83,33 +69,23 @@ fun QuickPicksAllScreen(
     navController: NavController,
     quickPicksViewModel: QuickPicksViewModel = hiltViewModel()
 ) {
-    val allSongs by quickPicksViewModel.quickPicks.collectAsStateWithLifecycle()
-    val currentSongId by remember(playerViewModel.stablePlayerState) {
+    val songs by quickPicksViewModel.quickPicks.collectAsStateWithLifecycle()
+    val isLoading by quickPicksViewModel.isLoading.collectAsStateWithLifecycle()
+    val selectedCategory by quickPicksViewModel.selectedCategory.collectAsStateWithLifecycle()
+
+    val currentSongId by androidx.compose.runtime.remember(playerViewModel.stablePlayerState) {
         playerViewModel.stablePlayerState.map { it.currentSong?.id }.distinctUntilChanged()
     }.collectAsStateWithLifecycle(initialValue = null)
-    val isPlaying by remember(playerViewModel.stablePlayerState) {
+    val isPlaying by androidx.compose.runtime.remember(playerViewModel.stablePlayerState) {
         playerViewModel.stablePlayerState.map { it.isPlaying }.distinctUntilChanged()
     }.collectAsStateWithLifecycle(initialValue = false)
-
-    var selectedCategory by remember { mutableStateOf("All") }
-
-    val filteredSongs = remember(allSongs, selectedCategory) {
-        if (selectedCategory == "All") allSongs
-        else allSongs.filter { song ->
-            val haystack = "${song.title} ${song.artist} ${song.album} ${song.genre.orEmpty()}"
-                .lowercase()
-            selectedCategory.lowercase().split(" ").any { keyword ->
-                haystack.contains(keyword)
-            }
-        }.ifEmpty { allSongs }
-    }
 
     val bgColors = listOf(
         MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
         MaterialTheme.colorScheme.surface.copy(alpha = 0.60f),
         MaterialTheme.colorScheme.surface
     )
-    val backgroundBrush = remember { Brush.verticalGradient(colors = bgColors, endY = 900f) }
+    val backgroundBrush = androidx.compose.runtime.remember { Brush.verticalGradient(colors = bgColors, endY = 900f) }
     val navBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
     Box(
@@ -127,19 +103,20 @@ fun QuickPicksAllScreen(
         ) {
             // Header
             item(key = "qp_header") {
-                QuickPicksAllHeader(songCount = filteredSongs.size)
+                QuickPicksAllHeader(
+                    songCount = songs.size,
+                    isLoading = isLoading,
+                    onRefresh = { quickPicksViewModel.refresh() }
+                )
             }
 
             // Action buttons
-            if (filteredSongs.isNotEmpty()) {
+            if (songs.isNotEmpty()) {
                 item(key = "qp_actions") {
                     QuickPicksActions(
                         onPlay = {
-                            val first = filteredSongs.firstOrNull() ?: return@QuickPicksActions
-                            playerViewModel.playSongs(filteredSongs, first, "Quick Picks")
-                        },
-                        onShuffle = {
-                            playerViewModel.playSongsShuffled(filteredSongs, "Quick Picks", startAtZero = true)
+                            val first = songs.firstOrNull() ?: return@QuickPicksActions
+                            playerViewModel.playSongs(songs, first, "Quick Picks")
                         },
                         modifier = Modifier.padding(horizontal = 16.dp)
                     )
@@ -156,7 +133,7 @@ fun QuickPicksAllScreen(
                     items(QUICK_PICKS_CATEGORIES, key = { it }) { category ->
                         FilterChip(
                             selected = selectedCategory == category,
-                            onClick = { selectedCategory = category },
+                            onClick = { quickPicksViewModel.setCategory(category) },
                             label = { Text(text = category, style = MaterialTheme.typography.labelLarge) },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = MaterialTheme.colorScheme.primary,
@@ -167,20 +144,34 @@ fun QuickPicksAllScreen(
                 }
             }
 
-            // Songs
-            items(filteredSongs, key = { it.id }) { song ->
-                EnhancedSongListItem(
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    song = song,
-                    isCurrentSong = currentSongId == song.id,
-                    isPlaying = currentSongId == song.id && isPlaying,
-                    onClick = {
-                        playerViewModel.showAndPlaySong(song, filteredSongs, "Quick Picks")
-                    },
-                    onMoreOptionsClick = { clickedSong ->
-                        playerViewModel.selectSongForInfo(clickedSong)
+            // Loading indicator
+            if (isLoading) {
+                item(key = "qp_loading") {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator()
                     }
-                )
+                }
+            }
+
+            // Songs
+            if (!isLoading) {
+                items(songs, key = { it.id }) { song ->
+                    EnhancedSongListItem(
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        song = song,
+                        isCurrentSong = currentSongId == song.id,
+                        isPlaying = currentSongId == song.id && isPlaying,
+                        onClick = {
+                            playerViewModel.showAndPlaySong(song, songs, "Quick Picks")
+                        },
+                        onMoreOptionsClick = { clickedSong ->
+                            playerViewModel.selectSongForInfo(clickedSong)
+                        }
+                    )
+                }
             }
         }
 
@@ -205,7 +196,7 @@ fun QuickPicksAllScreen(
 }
 
 @Composable
-private fun QuickPicksAllHeader(songCount: Int) {
+private fun QuickPicksAllHeader(songCount: Int, isLoading: Boolean, onRefresh: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -218,15 +209,40 @@ private fun QuickPicksAllHeader(songCount: Int) {
             verticalArrangement = Arrangement.Bottom
         ) {
             Spacer(modifier = Modifier.height(36.dp))
-            Text(
-                text = "Quick Picks",
-                style = MaterialTheme.typography.displaySmall,
-                fontWeight = FontWeight.Black,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            if (songCount > 0) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 Text(
-                    text = "$songCount songs",
+                    text = "Quick Picks",
+                    style = MaterialTheme.typography.displaySmall,
+                    fontWeight = FontWeight.Black,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                FilledIconButton(
+                    onClick = onRefresh,
+                    modifier = Modifier.size(36.dp),
+                    enabled = !isLoading,
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Refresh,
+                        contentDescription = "Refresh",
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+            if (!isLoading && songCount > 0) {
+                Text(
+                    text = "$songCount songs from YouTube",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else if (isLoading) {
+                Text(
+                    text = "Fetching from YouTube...",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -238,7 +254,6 @@ private fun QuickPicksAllHeader(songCount: Int) {
 @Composable
 private fun QuickPicksActions(
     onPlay: () -> Unit,
-    onShuffle: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -249,11 +264,8 @@ private fun QuickPicksActions(
     ) {
         Button(
             onClick = onPlay,
-            modifier = Modifier.weight(1f).fillMaxSize(),
-            shape = RoundedCornerShape(
-                topStart = 52.dp, topEnd = 14.dp,
-                bottomStart = 52.dp, bottomEnd = 14.dp
-            )
+            modifier = Modifier.fillMaxSize(),
+            shape = RoundedCornerShape(52.dp)
         ) {
             Icon(
                 imageVector = Icons.Rounded.PlayArrow,
@@ -261,24 +273,7 @@ private fun QuickPicksActions(
                 modifier = Modifier.size(ButtonDefaults.IconSize)
             )
             Spacer(Modifier.width(ButtonDefaults.IconSpacing))
-            Text("Play")
-        }
-
-        FilledTonalButton(
-            onClick = onShuffle,
-            modifier = Modifier.weight(1f).fillMaxSize(),
-            shape = RoundedCornerShape(
-                topStart = 14.dp, topEnd = 52.dp,
-                bottomStart = 14.dp, bottomEnd = 52.dp
-            )
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.Shuffle,
-                contentDescription = null,
-                modifier = Modifier.size(ButtonDefaults.IconSize)
-            )
-            Spacer(Modifier.width(ButtonDefaults.IconSpacing))
-            Text("Shuffle")
+            Text("Play All")
         }
     }
 }

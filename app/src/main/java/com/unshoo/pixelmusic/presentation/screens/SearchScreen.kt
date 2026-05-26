@@ -403,28 +403,6 @@ fun SearchScreen(
                             }
                         }
 
-                        // Local genre categories
-                        item(key = "local_genres_header") {
-                            androidx.compose.material3.Text(
-                                text = "Browse by Genre",
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                                modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 4.dp)
-                            )
-                        }
-                        item(key = "local_genres_grid") {
-                            GenreCategoriesGrid(
-                                genres = genres,
-                                onGenreClick = { genre ->
-                                    Timber.tag("SearchScreen")
-                                        .d("Genre clicked: ${genre.name} (ID: ${genre.id})")
-                                    val encodedGenreId = java.net.URLEncoder.encode(genre.id, "UTF-8")
-                                    navController.navigateSafely(Screen.GenreDetail.createRoute(encodedGenreId))
-                                },
-                                playerViewModel = playerViewModel,
-                                modifier = Modifier.padding(top = 4.dp)
-                            )
-                        }
                     }
                 } else {
                     Column(

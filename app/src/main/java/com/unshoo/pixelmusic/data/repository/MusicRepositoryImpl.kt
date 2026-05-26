@@ -1102,20 +1102,7 @@ class MusicRepositoryImpl @Inject constructor(
             favoritesDao.removeFavorite(id)
         }
 
-        if (youtubeId != null) {
-            repositoryScope.launch {
-                try {
-                    val settings = youtubeDatastoreRepository.settings.first()
-                    if (isFavorite) {
-                        com.unshoo.pixelmusic.data.remote.youtube.YoutubeRequestHelper.like(youtubeId, settings)
-                    } else {
-                        com.unshoo.pixelmusic.data.remote.youtube.YoutubeRequestHelper.removeLike(youtubeId, settings)
-                    }
-                } catch (e: Exception) {
-                    Timber.e(e, "Failed to sync like state to YouTube for song $youtubeId")
-                }
-            }
-        }
+        // YouTube remote like sync removed
     }
 
     override suspend fun setFavoriteStatusWithMetadata(song: Song, isFavorite: Boolean) = withContext(Dispatchers.IO) {
@@ -1155,20 +1142,7 @@ class MusicRepositoryImpl @Inject constructor(
             favoritesDao.removeFavorite(id)
         }
 
-        if (youtubeId != null) {
-            repositoryScope.launch {
-                try {
-                    val settings = youtubeDatastoreRepository.settings.first()
-                    if (isFavorite) {
-                        com.unshoo.pixelmusic.data.remote.youtube.YoutubeRequestHelper.like(youtubeId, settings)
-                    } else {
-                        com.unshoo.pixelmusic.data.remote.youtube.YoutubeRequestHelper.removeLike(youtubeId, settings)
-                    }
-                } catch (e: Exception) {
-                    Timber.e(e, "Failed to sync like state to YouTube for song $youtubeId")
-                }
-            }
-        }
+        // YouTube remote like sync removed
     }
 
     override suspend fun getFavoriteSongIdsOnce(): Set<String> = withContext(Dispatchers.IO) {

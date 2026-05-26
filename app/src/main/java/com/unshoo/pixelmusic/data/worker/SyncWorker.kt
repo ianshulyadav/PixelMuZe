@@ -1654,39 +1654,8 @@ constructor(
                 Log.e(TAG, "Failed to fetch remote YouTube playlists", e)
             }
 
-            // 2. Fetch and sync Liked Songs playlist ("LM") — delta sync
-            var remoteLikedSongsList: List<com.unshoo.pixelmusic.data.model.youtube.Song> = emptyList()
-            try {
-                val likedPlaylistInfo = PlaylistInfo(id = "liked_songs", title = "Liked Songs")
-                val emptyLikedPlaylist = Playlist(likedPlaylistInfo, emptyList())
-                val fullLikedPlaylist = YoutubePlaylistDataSource().retrieveOne(emptyLikedPlaylist, settings)
-                remoteLikedSongsList = fullLikedPlaylist.songs
-                if (fullLikedPlaylist.songs.isNotEmpty()) {
-                    // Preserving insert — only insert new liked songs, keep existing downloads
-                    appDatabase.playlistRepository().insertPlaylistWithSongsPreserving(
-                        fullLikedPlaylist,
-                        appDatabase.songRepository()
-                    )
-                    // NOTE: Auto-download removed. Users download via playlist options or "Cache liked songs" setting.
-                }
-
-                // Sync with local favorites table
-                val remoteLikedSongIds = fullLikedPlaylist.songs.map { toUnifiedYoutubeSongId(it.youtubeId) }.toSet()
-                val localFavorites = favoritesDao.getFavoriteSongIdsOnce()
-                val localYoutubeFavorites = localFavorites.filter { it < -YOUTUBE_SONG_ID_OFFSET }.toSet()
-                
-                val songsToAdd = remoteLikedSongIds.filter { it !in localYoutubeFavorites }
-                val songsToRemove = localYoutubeFavorites.filter { it !in remoteLikedSongIds }
-                
-                if (songsToAdd.isNotEmpty()) {
-                    favoritesDao.insertAll(songsToAdd.map { FavoritesEntity(songId = it, isFavorite = true) })
-                }
-                songsToRemove.forEach { songId ->
-                    favoritesDao.removeFavorite(songId)
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to sync remote YouTube liked songs", e)
-            }
+            // 2. Fetch and sync Liked Songs playlist ("LM") — delta sync and mapping removed
+            val remoteLikedSongsList: List<com.unshoo.pixelmusic.data.model.youtube.Song> = emptyList()
 
             // 3. Fetch missing genres (rate limited: 10 per sync cycle)
             try {
